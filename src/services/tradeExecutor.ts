@@ -43,6 +43,33 @@ const doTrading = async (clobClient: ClobClient) => {
         const user_balance = await getMyBalance(USER_ADDRESS);
         console.log('My current balance:', my_balance);
         console.log('User current balance:', user_balance);
+
+        let condition = '';
+        if (!my_position && !user_position) {
+            condition = 'buy';
+        } else if (my_position && !user_position) {
+            condition = 'merge';
+        } else if (my_position && user_position) {
+            if (trade.side === 'BUY') {
+                condition = 'buy';
+            } else {
+                condition = 'sell';
+            }
+        } else {
+            condition = 'buy';
+        }
+
+        console.log('Trading condition:', condition);
+
+        await postOrder(
+            clobClient,
+            condition,
+            my_position,
+            user_position,
+            trade,
+            my_balance,
+            user_balance
+        );
     }
 };
 
