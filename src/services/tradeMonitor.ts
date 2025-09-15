@@ -1,7 +1,6 @@
-import moment from 'moment';
 import { ENV } from '../config/env';
-import { UserActivityInterface, UserPositionInterface } from '../interfaces/User';
-import { getUserActivityModel, getUserPositionModel } from '../models/userHistory';
+import { UserActivityInterface } from '../interfaces/User';
+import { getUserActivityModel } from '../models/userHistory';
 import fetchData from '../utils/fetchData';
 
 const USER_ADDRESS = ENV.USER_ADDRESS;
@@ -13,24 +12,61 @@ if (!USER_ADDRESS) {
 }
 
 const UserActivity = getUserActivityModel(USER_ADDRESS);
-const UserPosition = getUserPositionModel(USER_ADDRESS);
 
-let temp_trades: UserActivityInterface[] = [];
-
-const init = async () => {
-    temp_trades = (await UserActivity.find().exec()).map((trade) => trade as UserActivityInterface);
-};
 
 const fetchTradeData = async () => {
-
+    try {
+        console.log('Fetching trade data for user:', USER_ADDRESS);
+        
+        const activities: UserActivityInterface[] = await fetchData(
+            `https://data-api.polymarket.com/activity?user=${USER_ADDRESS}&type=TRADE&limit=100&sortBy=TIMESTAMP&sortDirection=DESC`
+        );
+        
+        if (!activities || activities.length === 0) {
+            console.log('No activities found for user');
+            return;
+        }
+        
+        console.log(`Found ${activities.length} activities`);
+        
+        const currentTime = Math.floor(Date.now() / 1000);
+        const cutoffTime = currentTime - (TOO_OLD_TIMESTAMP * 3600); // TOO_OLD_TIMESTAMP is in hours
+        
+        const recentActivities = activities.filter(activity => 
+            activity.timestamp && activity.timestamp > cutoffTime
+        );
+        
+        console.log(`${recentActivities.length} recent activities after filtering`);
+        
+        for (const activity of recentActivities) {
+            const existingTrade = await UserActivity.findOne({
+                transactionHash: activity.transactionHash,
+                timestamp: activity.timestamp
+            });
+            
+            if (!existingTrade) {
+                const tradeData = {
+                    ...activity,
+                    bot: false,
+                    botExcutedTime: 0
+                };
+                
+                const newTrade = new UserActivity(tradeData);
+                await newTrade.save();
+                console.log('Saved new trade:', activity.transactionHash);
+            }
+        }
+        
+    } catch (error) {
+        console.error('Error fetching trade data:', error);
+    }
 };
 
 const tradeMonitor = async () => {
     console.log('Trade Monitor is running every', FETCH_INTERVAL, 'seconds');
-    await init();    //Load my oders before sever downs
     while (true) {
-        await fetchTradeData();     //Fetch all user activities
-        await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000));     //Fetch user activities every second
+        await fetchTradeData();
+        await new Promise((resolve) => setTimeout(resolve, FETCH_INTERVAL * 1000));
     }
 };
 
